@@ -10,6 +10,24 @@ export interface ChatResponse {
   };
 }
 
+export function formatFriendlyError(rawError: any): string {
+  if (!rawError) return 'An unexpected error occurred. Please try again.';
+  const str = typeof rawError === 'string' ? rawError : rawError.message || String(rawError);
+  try {
+    const parsed = JSON.parse(str);
+    if (parsed.error?.message) {
+      if (parsed.error.code === 503 || parsed.error.status === 'UNAVAILABLE') {
+        return 'The AI service is experiencing high traffic spikes. Please click Scan again in a few seconds.';
+      }
+      return parsed.error.message;
+    }
+  } catch {}
+  if (str.includes('503') || str.includes('UNAVAILABLE') || str.includes('high demand')) {
+    return 'The AI service is experiencing high traffic spikes. Please click Scan again in a few seconds.';
+  }
+  return str;
+}
+
 export async function sendBiancaMessage(
   message: string,
   history: { role: string; content: string }[],
@@ -34,7 +52,7 @@ export async function sendBiancaMessage(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Server responded with ${response.status}`);
+    throw new Error(formatFriendlyError(errorData.error || `Server responded with ${response.status}`));
   }
 
   return response.json();
@@ -57,7 +75,7 @@ export async function generateRecipeWithBianca(params: {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Failed to generate recipe');
+    throw new Error(formatFriendlyError(errorData.error || 'Failed to generate recipe'));
   }
 
   const data = await response.json();
@@ -112,7 +130,7 @@ export async function scanRecipeWithBianca(params: ScanRecipeParams): Promise<Re
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `Server responded with error status ${response.status}`);
+    throw new Error(formatFriendlyError(errorData.error || `Server responded with error status ${response.status}`));
   }
 
   const data = await response.json();
@@ -178,7 +196,7 @@ export async function scanReceiptWithBianca(params: {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Failed to scan receipt');
+    throw new Error(formatFriendlyError(errorData.error || 'Failed to scan receipt'));
   }
 
   const data = await response.json();
@@ -199,7 +217,7 @@ export async function remixLeftoversWithBianca(params: {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Failed to generate zero-waste recipe');
+    throw new Error(formatFriendlyError(errorData.error || 'Failed to generate zero-waste recipe'));
   }
 
   const data = await response.json();

@@ -42,6 +42,69 @@ const ai = apiKey
     })
   : null;
 
+export function cleanErrorMessage(err: any): string {
+  if (!err) return 'An unexpected error occurred.';
+  const msg = typeof err === 'string' ? err : err.message || String(err);
+  try {
+    const parsed = JSON.parse(msg);
+    if (parsed.error?.message) {
+      if (parsed.error.code === 503 || parsed.error.status === 'UNAVAILABLE') {
+        return 'The AI model is currently experiencing high demand. Please retry in a few seconds or use text paste mode.';
+      }
+      return parsed.error.message;
+    }
+  } catch {}
+  if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+    return 'The AI service is experiencing high traffic spikes. Retrying in a few seconds usually succeeds.';
+  }
+  return msg;
+}
+
+export async function generateContentWithRetry(params: {
+  contents: any;
+  config?: any;
+  models?: string[];
+}) {
+  if (!ai) {
+    throw new Error(
+      'GEMINI_API_KEY is not configured on the server. Please add GEMINI_API_KEY to your environment variables in Vercel/Render.'
+    );
+  }
+
+  // Model cascade: try fast primary -> latest flash -> flash-lite
+  const candidates = params.models || [
+    'gemini-3.8-flash',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+  ];
+
+  let lastError: any = null;
+
+  for (const model of candidates) {
+    try {
+      const config = { ...params.config };
+      if (model.includes('lite') && config.thinkingConfig) {
+        delete config.thinkingConfig;
+      }
+
+      const response = await ai.models.generateContent({
+        model,
+        contents: params.contents,
+        config,
+      });
+
+      if (response && response.text) {
+        return response;
+      }
+    } catch (err: any) {
+      console.warn(`Model "${model}" failed (retrying next available model):`, err?.message || err);
+      lastError = err;
+    }
+  }
+
+  throw new Error(cleanErrorMessage(lastError));
+}
+
 // LifeHub Context Store (represents LifeHub GET /api/integrations/bianca/fitness-context)
 let lifeHubContext = {
   user_id: '',
@@ -226,8 +289,7 @@ INSTRUCTIONS:
       parts: [{ text: message }],
     });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateContentWithRetry({
       contents,
       config: {
         systemInstruction: systemPrompt,
@@ -258,7 +320,7 @@ INSTRUCTIONS:
   } catch (error: any) {
     console.error('Error in /api/bianca/chat:', error);
     res.status(500).json({
-      error: error.message || 'Failed to process chat message with Bianca',
+      error: cleanErrorMessage(error),
     });
   }
 });
@@ -320,8 +382,7 @@ CRITICAL: Return ONLY valid JSON with this exact schema:
   "chefTips": "string"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateContentWithRetry({
       contents: promptText,
       config: {
         responseMimeType: 'application/json',
@@ -338,7 +399,7 @@ CRITICAL: Return ONLY valid JSON with this exact schema:
     });
   } catch (error: any) {
     console.error('Error generating recipe:', error);
-    res.status(500).json({ error: error.message || 'Failed to generate recipe' });
+    res.status(500).json({ error: cleanErrorMessage(error) });
   }
 });
 
@@ -531,8 +592,7 @@ Return ONLY valid JSON with this exact schema:
   "chefTips": "string"
 }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response = await generateContentWithRetry({
         contents: [
           {
             role: 'user',
@@ -601,8 +661,7 @@ Return ONLY valid JSON matching this schema:
 }`;
 
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+        const response = await generateContentWithRetry({
           contents: prompt,
           config: {
             responseMimeType: 'application/json',
@@ -686,8 +745,7 @@ Structure the entire recipe cleanly matching this schema:
 }`;
 
       try {
-        const aiResponse = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+        const aiResponse = await generateContentWithRetry({
           contents: prompt,
           config: {
             responseMimeType: 'application/json',
@@ -707,7 +765,7 @@ Structure the entire recipe cleanly matching this schema:
   } catch (error: any) {
     console.error('Error in /api/bianca/scan-recipe:', error);
     res.status(500).json({
-      error: error.message || 'Failed to scan and process recipe',
+      error: cleanErrorMessage(error),
     });
   }
 });
@@ -780,8 +838,7 @@ Return ONLY valid JSON matching this schema:
         cleanBase64 = parts[1];
       }
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response = await generateContentWithRetry({
         contents: [
           {
             role: 'user',
@@ -799,8 +856,7 @@ Return ONLY valid JSON matching this schema:
 
       parsedResult = JSON.parse(response.text || '{}');
     } else {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response = await generateContentWithRetry({
         contents: `${receiptPrompt}\n\nReceipt Text:\n"""\n${text || ''}\n"""`,
         config: {
           responseMimeType: 'application/json',
@@ -817,7 +873,7 @@ Return ONLY valid JSON matching this schema:
     });
   } catch (err: any) {
     console.error('Error in /api/bianca/scan-receipt:', err);
-    res.status(500).json({ error: err.message || 'Failed to scan receipt' });
+    res.status(500).json({ error: cleanErrorMessage(err) });
   }
 });
 
@@ -860,12 +916,7 @@ Return ONLY valid JSON matching this schema:
   "chefTips": "string"
 }`;
 
-    if (!ai) {
-      return res.status(500).json({ error: 'Gemini API not configured' });
-    }
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateContentWithRetry({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -877,7 +928,7 @@ Return ONLY valid JSON matching this schema:
     return res.json({ success: true, recipe: parsed });
   } catch (err: any) {
     console.error('Error in /api/bianca/remix-leftovers:', err);
-    res.status(500).json({ error: err.message || 'Failed to remix leftovers' });
+    res.status(500).json({ error: cleanErrorMessage(err) });
   }
 });
 
