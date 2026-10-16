@@ -1,5 +1,4 @@
 import express, { Request, Response } from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -15,6 +14,20 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// URL normalization middleware for Vercel Serverless Functions
+app.use((req, _res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    if (
+      req.url.startsWith('/bianca') ||
+      req.url.startsWith('/lifehub') ||
+      req.url.startsWith('/health')
+    ) {
+      req.url = '/api' + req.url;
+    }
+  }
+  next();
+});
 
 // Initialize Google GenAI
 const apiKey = process.env.GEMINI_API_KEY;
@@ -873,6 +886,7 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
