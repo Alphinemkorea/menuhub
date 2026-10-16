@@ -1,0 +1,6 @@
+{
+  "name": "MenuHub — AI Cooking & Meal Planning System",
+  "description": "Personal AI cooking, inventory, and meal-planning system integrated with Bianca AI assistant and LifeHub fitness goals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
